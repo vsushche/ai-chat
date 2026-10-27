@@ -25,6 +25,11 @@ done
 
 # --- API ---
 
+# Print an error message in red to stderr
+openai_error() {
+    printf '\033[0;31m%s\033[0m\n' "$*" >&2
+}
+
 # Join JSON objects (one per argument) into a JSON array string
 openai_history_json() {
     local json="[" item
@@ -63,14 +68,14 @@ openai_generate() {
 
     # Handle curl error (e.g., no network)
     if [[ $curl_exit_code -ne 0 ]]; then
-        echo "OpenAI Error (curl): Failed to connect to API. Error code: $curl_exit_code" >&2
+        openai_error "OpenAI Error (curl): Failed to connect to API. Error code: $curl_exit_code"
         return 1
     fi
 
     # Look for error in API response (e.g., invalid key)
     api_error=$(echo "$response" | jq -r '.error.message // empty')
     if [[ -n "$api_error" ]]; then
-        echo "OpenAI Error (API): $api_error" >&2
+        openai_error "OpenAI Error (API): $api_error"
         return 1
     fi
 
@@ -79,8 +84,8 @@ openai_generate() {
 
     # Check for empty response (e.g., refusal or content filter)
     if [[ -z "$model_text" ]]; then
-        echo "OpenAI Error: Received empty or unexpected response." >&2
-        echo "RAW response: $response" >&2
+        openai_error "OpenAI Error: Received empty or unexpected response."
+        openai_error "RAW response: $response"
         return 1
     fi
 

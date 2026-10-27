@@ -36,6 +36,21 @@ ai: HAL 9000
 You are HAL 9000, ...
 ```
 
+Optional named sections after the body start the conversation (a separator of 3+ dashes, a space and the name; `--- intro ---` also works):
+
+```
+--- intro
+Narrator text shown at start in cyan. Not sent to the model.
+
+--- greeting
+Fixed first line of the AI. Shown with the AI label and kept in history.
+
+--- opening
+Instruction for the model how to start the conversation. The first AI line is generated from it.
+```
+
+If a prompt has both `greeting` and `opening`, `greeting` is used and a warning is shown. The conversation starts with a hidden `[DIRECTOR NOTE]` user turn (the user does not see it), and a rule telling the model not to mention such notes is added to the system prompt.
+
 Add a new file to `prompts/` to add someone new to talk to.
 
 ## chat.sh — Interactive Chat
@@ -69,4 +84,10 @@ Reset the session:
 
 ```bash
 ./ask.sh --reset
+```
+
+Reset and start a conversation with a prompt (shows the intro and the first AI line, saves it to the session):
+
+```bash
+./ask.sh --reset mother
 ```

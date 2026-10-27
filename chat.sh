@@ -11,11 +11,13 @@ set -euo pipefail
 # Shared LLM access: provider from .env (llm_generate, LLM_PROVIDER, LLM_MODEL)
 . ./llm.sh
 
-# System prompts from prompts/ (prompt_load, prompt_names, prompt_description)
+# System prompts from prompts/ (prompt_load, prompt_start, prompt_names, prompt_description)
 . ./prompts.sh
 
 # Color codes for terminal output
-GREEN='\033[0;32m'
+GREEN='\033[0;32m'   # AI replies
+CYAN='\033[0;36m'    # intro (narrator)
+YELLOW='\033[0;33m'  # system messages
 RESET='\033[0m'
 
 # We disable blocking for safety reasons (for personal use)
@@ -48,54 +50,72 @@ typewriter() {
     printf "\n"
 }
 
+# System message (banner, menu, hints) - fast typewriter in yellow
+say() {
+    typewriter "$1" 0.005 "$YELLOW"
+}
+
 # Menu to choose who to talk to - sets PROMPT_FILE
 # Returns 1 on Ctrl+D (EOF)
 choose_prompt() {
-    local names=() labels=() name label
+    local names=() i choice
     mapfile -t names < <(prompt_names)
     if [[ ${#names[@]} -eq 0 ]]; then
         echo "Error: no prompts found in $PROMPTS_DIR/." >&2
         exit 1
     fi
-    for name in "${names[@]}"; do
-        labels+=("$name - $(prompt_description "$name")")
+
+    say "Who do you want to talk to?"
+    for i in "${!names[@]}"; do
+        say "$((i + 1))) ${names[i]} - $(prompt_description "${names[i]}")"
     done
 
-    echo "Who do you want to talk to?"
-    PS3="Choose [1-${#names[@]}]: "
-    select label in "${labels[@]}"; do
-        if [[ -n "$label" ]]; then
-            PROMPT_FILE="${names[REPLY-1]}"
+    while true; do
+        read -e -r -p "Choose [1-${#names[@]}]: " choice || return 1
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#names[@]} )); then
+            PROMPT_FILE="${names[choice - 1]}"
             return 0
         fi
-        echo "Invalid choice."
+        say "Invalid choice."
     done
-    return 1
 }
 
 # Array to store conversation history.
 # Each element is a JSON object created by 'jq'
 declare -a history=()
 
-echo "=========================================="
-echo "   LLM Chat"
-echo "   Powered by ${LLM_PROVIDER} (${LLM_MODEL})"
-echo "=========================================="
+say "=========================================="
+say "   LLM Chat"
+say "   Powered by ${LLM_PROVIDER} (${LLM_MODEL})"
+say "=========================================="
 
 # Prompt from PROMPT_FILE in .env, otherwise let the user choose
 if [[ -z "${PROMPT_FILE:-}" ]]; then
     if ! choose_prompt; then
         echo
-        echo "Goodbye!"
+        say "Goodbye!"
         exit 0
     fi
 fi
 prompt_load "$PROMPT_FILE" || exit 1
 
-echo "=========================================="
-echo "Talking to: $(prompt_description "$PROMPT_NAME")"
-echo "Type 'exit' or press Ctrl+D to terminate."
-echo "=========================================="
+say "=========================================="
+say "Talking to: $(prompt_description "$PROMPT_NAME")"
+say "Type 'exit' or press Ctrl+D to terminate."
+say "=========================================="
+
+# Intro from the narrator: shown only, not sent to the model
+if [[ -n "$PROMPT_INTRO" ]]; then
+    echo
+    typewriter "$PROMPT_INTRO" 0.02 "$CYAN"
+fi
+
+# First AI line: fixed greeting or generated from the opening instruction
+if prompt_start "$SAFETY_SETTINGS" && [[ -n "$PROMPT_START_TEXT" ]]; then
+    echo
+    typewriter "$PROMPT_AI_LABEL: $PROMPT_START_TEXT" 0.02 "$GREEN"
+    history+=("${PROMPT_START_HISTORY[@]}")
+fi
 
 # Infinite loop for chat
 while true; do
@@ -105,7 +125,7 @@ while true; do
 
     # Check for Ctrl+D (EOF) or "exit" command
     if [[ -z "$user_prompt" ]] || [[ "$user_prompt" == "exit" ]]; then
-        echo "Goodbye!"
+        say "Goodbye!"
         break
     fi
 
@@ -121,8 +141,7 @@ while true; do
     fi
 
     # 4. Output response and add to history
-    printf "%b%s: %b" "$GREEN" "$PROMPT_AI_LABEL" "$RESET"
-    typewriter "$model_text" 0.02 "$GREEN"
+    typewriter "$PROMPT_AI_LABEL: $model_text" 0.02 "$GREEN"
     model_json=$(jq -n --arg text "$model_text" '{role: "model", parts: [{text: $text}]}')
     history+=("$model_json")
 
