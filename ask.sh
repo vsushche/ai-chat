@@ -18,14 +18,34 @@ usage() {
     else
         echo "Usage: $0 <prompt> \"your question here\""
     fi
-    echo "       $0 --reset   (start a new session)"
+    echo "       $0 --reset [prompt]   (start a new session, with prompt: show intro and first AI line)"
     echo "Session persists across calls."
 }
 
 # --- RESET SESSION ---
+# With a prompt (argument or PROMPT_FILE) also start the conversation
 if [[ "${1:-}" == "--reset" ]]; then
     > "$SESSION_FILE"
     echo "Session reset."
+
+    prompt_name="${2:-${PROMPT_FILE:-}}"
+    [[ -n "$prompt_name" ]] || exit 0
+    if ! prompt_load "$prompt_name"; then
+        echo "Available prompts:" >&2
+        prompt_list >&2
+        exit 1
+    fi
+
+    if [[ -n "$PROMPT_INTRO" ]]; then
+        echo
+        echo "$PROMPT_INTRO"
+    fi
+    prompt_start || exit 1
+    if [[ -n "$PROMPT_START_TEXT" ]]; then
+        echo
+        echo "$PROMPT_START_TEXT"
+        printf '%s\n' "${PROMPT_START_HISTORY[@]}" > "$SESSION_FILE"
+    fi
     exit 0
 fi
 
