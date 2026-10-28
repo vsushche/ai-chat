@@ -65,7 +65,7 @@ If `PROMPT` is not set in `.env`, a menu asks who you want to talk to. Runs a co
 
 ## ask.sh — CLI / Scriptable Chat
 
-Pass the prompt name and your message as arguments. Each prompt has its own conversation history in `sessions/<prompt>.jsonl`, it persists across calls.
+Pass the prompt name and your message as arguments. Each prompt has its own conversation history in `sessions/<prompt>.jsonl`, it persists across calls. Your question and the answer are printed with the chat labels (`RIPLEY:`, `MOTHER:`). A new session starts like the chat: the intro and the first AI line (the prompt's greeting, or the line generated from its opening) are printed before the answer and the first line is kept in the history.
 
 ```bash
 ./ask.sh hal9000 "Open the pod bay doors"
@@ -80,8 +80,14 @@ Run with no arguments to list available prompts:
 ./ask.sh
 ```
 
-Reset the session of a prompt and start the conversation (shows the intro and the first AI line, saves it to the session). The prompt name is required unless `PROMPT` is set in `.env`:
+Reset (delete) the session of a prompt. The prompt name is required unless `PROMPT` is set in `.env`:
 
 ```bash
 ./ask.sh --reset mother
+```
+
+Print the session of a prompt (with chat labels, hidden director notes skipped). The prompt name is required unless `PROMPT` is set in `.env`:
+
+```bash
+./ask.sh --history mother
 ```

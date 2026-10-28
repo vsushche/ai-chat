@@ -16,10 +16,12 @@ SESSIONS_DIR="sessions"
 usage() {
     if [[ -n "${PROMPT:-}" ]]; then
         echo "Usage: $0 \"your question here\"   (prompt '$PROMPT' from .env)"
-        echo "       $0 --reset   (new session: show intro and first AI line)"
+        echo "       $0 --reset     (delete the session)"
+        echo "       $0 --history   (print the session)"
     else
         echo "Usage: $0 <prompt> \"your question here\""
-        echo "       $0 --reset <prompt>   (new session: show intro and first AI line)"
+        echo "       $0 --reset <prompt>     (delete the session)"
+        echo "       $0 --history <prompt>   (print the session)"
     fi
     echo "Each prompt has its own session in $SESSIONS_DIR/, it persists across calls."
 }
@@ -36,28 +38,27 @@ load_prompt() {
     SESSION_FILE="$SESSIONS_DIR/$PROMPT_NAME.jsonl"
 }
 
-# --- RESET SESSION ---
-# Reset the session of one prompt (argument or PROMPT) and start the conversation
-if [[ "${1:-}" == "--reset" ]]; then
+# --- SESSION COMMANDS: --reset, --history ---
+# Work on the session of one prompt (argument or PROMPT)
+if [[ "${1:-}" == "--reset" || "${1:-}" == "--history" ]]; then
     prompt_name="${2:-${PROMPT:-}}"
     if [[ -z "$prompt_name" ]]; then
-        echo "Error: no prompt given for --reset." >&2
+        echo "Error: no prompt given for $1." >&2
         usage >&2
         exit 1
     fi
     load_prompt "$prompt_name"
-    > "$SESSION_FILE"
-    echo "Session '$PROMPT_NAME' reset."
 
-    if [[ -n "$PROMPT_INTRO" ]]; then
-        echo
-        echo "$PROMPT_INTRO"
-    fi
-    prompt_start
-    if [[ -n "$PROMPT_START_TEXT" ]]; then
-        echo
-        echo "$PROMPT_START_TEXT"
-        printf '%s\n' "${PROMPT_START_HISTORY[@]}" > "$SESSION_FILE"
+    if [[ "$1" == "--reset" ]]; then
+        rm -f "$SESSION_FILE"
+        echo "Session '$PROMPT_NAME' reset."
+    elif [[ -f "$SESSION_FILE" ]]; then
+        # Print the session with chat labels, without hidden director notes
+        jq -r --arg user "$PROMPT_USER_LABEL" --arg ai "$PROMPT_AI_LABEL" '
+            select(.parts[0].text | startswith("[DIRECTOR NOTE") | not)
+            | "\(if .role == "model" then $ai else $user end): \(.parts[0].text)"' "$SESSION_FILE"
+    else
+        echo "History is empty."
     fi
     exit 0
 fi
@@ -91,16 +92,29 @@ if [[ $# -eq 0 ]]; then
 fi
 
 # --- LOAD HISTORY AND ADD USER QUESTION ---
-history=()
-if [[ -s "$SESSION_FILE" ]]; then
+# A new session starts like the chat: intro and first AI line (greeting or opening)
+if [[ -f "$SESSION_FILE" ]]; then
     mapfile -t history < "$SESSION_FILE"
+else
+    prompt_start
+    history=("${PROMPT_START_HISTORY[@]}")
+    if [[ -n "$PROMPT_INTRO" ]]; then
+        echo "$PROMPT_INTRO"
+        echo
+    fi
+    if [[ -n "$PROMPT_START_TEXT" ]]; then
+        echo "$PROMPT_AI_LABEL: $PROMPT_START_TEXT"
+        echo
+    fi
 fi
 history+=("$(llm_turn user "$*")")
+echo "$PROMPT_USER_LABEL: $*"
+echo
 
 # --- CALL API ---
 model_text=$(llm_generate "$(llm_history_json "${history[@]}")")
 
 # --- OUTPUT AND SAVE ---
-echo "$model_text"
+echo "$PROMPT_AI_LABEL: $model_text"
 history+=("$(llm_turn model "$model_text")")
 printf '%s\n' "${history[@]}" > "$SESSION_FILE"
