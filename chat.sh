@@ -8,7 +8,7 @@ set -euo pipefail
 
 # --- CONFIGURATION ---
 
-# Shared LLM access: provider from .env (llm_generate, LLM_PROVIDER, LLM_MODEL)
+# Shared LLM access: provider from .env (llm_generate, llm_turn, PROVIDER, LLM_MODEL)
 . ./llm.sh
 
 # System prompts from prompts/ (prompt_load, prompt_start, prompt_names, prompt_description)
@@ -30,24 +30,16 @@ SAFETY_SETTINGS='[
 
 # --- CHAT LOGIC ---
 
-# Typewriter effect function - prints text character by character
+# Typewriter effect - prints text character by character
+# $1 - text, $2 - delay in seconds per character, $3 - color code
 typewriter() {
-    local text="$1"
-    local delay="${2:-0.03}"  # Default 0.03 seconds per character
-    local color="${3:-}"       # Optional color code
-    local i
-    
-    # Print color code if provided
-    [[ -n "$color" ]] && printf "%b" "$color"
-    
+    local text="$1" delay="$2" color="$3" i
+    printf "%b" "$color"
     for (( i=0; i<${#text}; i++ )); do
         printf "%s" "${text:$i:1}"
         sleep "$delay"
     done
-    
-    # Reset color if it was set
-    [[ -n "$color" ]] && printf "%b" "$RESET"
-    printf "\n"
+    printf "%b\n" "$RESET"
 }
 
 # System message (banner, menu, hints) - fast typewriter in yellow
@@ -55,15 +47,11 @@ say() {
     typewriter "$1" 0.005 "$YELLOW"
 }
 
-# Menu to choose who to talk to - sets PROMPT_FILE
+# Menu to choose who to talk to - sets PROMPT
 # Returns 1 on Ctrl+D (EOF)
 choose_prompt() {
     local names=() i choice
     mapfile -t names < <(prompt_names)
-    if [[ ${#names[@]} -eq 0 ]]; then
-        echo "Error: no prompts found in $PROMPTS_DIR/." >&2
-        exit 1
-    fi
 
     say "Who do you want to talk to?"
     for i in "${!names[@]}"; do
@@ -73,7 +61,7 @@ choose_prompt() {
     while true; do
         read -e -r -p "Choose [1-${#names[@]}]: " choice || return 1
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#names[@]} )); then
-            PROMPT_FILE="${names[choice - 1]}"
+            PROMPT="${names[choice - 1]}"
             return 0
         fi
         say "Invalid choice."
@@ -81,23 +69,23 @@ choose_prompt() {
 }
 
 # Array to store conversation history.
-# Each element is a JSON object created by 'jq'
-declare -a history=()
+# Each element is a JSON object created by llm_turn
+history=()
 
 say "=========================================="
 say "   LLM Chat"
-say "   Powered by ${LLM_PROVIDER} (${LLM_MODEL})"
+say "   Powered by ${PROVIDER} (${LLM_MODEL})"
 say "=========================================="
 
-# Prompt from PROMPT_FILE in .env, otherwise let the user choose
-if [[ -z "${PROMPT_FILE:-}" ]]; then
+# Prompt from PROMPT in .env, otherwise let the user choose
+if [[ -z "${PROMPT:-}" ]]; then
     if ! choose_prompt; then
         echo
         say "Goodbye!"
         exit 0
     fi
 fi
-prompt_load "$PROMPT_FILE" || exit 1
+prompt_load "$PROMPT"
 
 say "=========================================="
 say "Talking to: $(prompt_description "$PROMPT_NAME")"
@@ -130,8 +118,7 @@ while true; do
     fi
 
     # 2. Add user request to history
-    user_json=$(jq -n --arg text "$user_prompt" '{role: "user", parts: [{text: $text}]}')
-    history+=("$user_json")
+    history+=("$(llm_turn user "$user_prompt")")
 
     # 3. Send complete history to the model
     if ! model_text=$(llm_generate "$(llm_history_json "${history[@]}")" "$SAFETY_SETTINGS"); then
@@ -142,7 +129,6 @@ while true; do
 
     # 4. Output response and add to history
     typewriter "$PROMPT_AI_LABEL: $model_text" 0.02 "$GREEN"
-    model_json=$(jq -n --arg text "$model_text" '{role: "model", parts: [{text: $text}]}')
-    history+=("$model_json")
+    history+=("$(llm_turn model "$model_text")")
 
 done
